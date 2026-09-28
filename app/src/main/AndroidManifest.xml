@@ -32,6 +32,10 @@
             </intent-filter>
         </activity>
 
+        <receiver
+            android:name=".CallActionReceiver"
+            android:exported="false"/>
+
         <service
             android:name=".CallFixInCallService"
             android:exported="true"
