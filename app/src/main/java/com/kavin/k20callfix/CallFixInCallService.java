@@ -1,5 +1,7 @@
 package com.kavin.k20callfix;
 
+import android.app.KeyguardManager;
+import android.content.Context;
 import android.content.Intent;
 import android.telecom.Call;
 import android.telecom.CallAudioState;
@@ -13,16 +15,23 @@ public class CallFixInCallService extends InCallService {
 
     private final Call.Callback callback = new Call.Callback() {
         @Override public void onStateChanged(Call call, int state) { handle(call); }
-        @Override public void onDetailsChanged(Call call, Call.Details details) { broadcastChange(); }
+        @Override public void onDetailsChanged(Call call, Call.Details details) {
+            if (call.getState() == Call.STATE_RINGING) {
+                IncomingCallNotifier.show(CallFixInCallService.this, getDisplayNumber());
+            }
+            broadcastChange();
+        }
     };
 
     @Override public void onCreate() {
         super.onCreate();
         instance = this;
+        IncomingCallNotifier.ensureChannel(this);
     }
 
     @Override public void onDestroy() {
         RingerController.stop();
+        IncomingCallNotifier.cancel(this);
         instance = null;
         super.onDestroy();
     }
@@ -36,6 +45,7 @@ public class CallFixInCallService extends InCallService {
 
     @Override public void onCallRemoved(Call call) {
         RingerController.stop();
+        IncomingCallNotifier.cancel(this);
         try { call.unregisterCallback(callback); } catch (Throwable ignored) {}
         if (currentCall == call) currentCall = null;
         broadcastChange();
@@ -45,12 +55,21 @@ public class CallFixInCallService extends InCallService {
     private void handle(Call call) {
         if (call.getState() == Call.STATE_RINGING) {
             RingerController.start(this);
-            launchUi();
+            IncomingCallNotifier.show(this, getDisplayNumber());
+
+            KeyguardManager km =
+                    (KeyguardManager) getSystemService(Context.KEYGUARD_SERVICE);
+            boolean locked = km != null && km.isKeyguardLocked();
+            if (!locked) launchUi();
         } else {
             RingerController.stop();
+            IncomingCallNotifier.cancel(this);
+
             if (call.getState() == Call.STATE_DIALING ||
-                call.getState() == Call.STATE_CONNECTING ||
-                call.getState() == Call.STATE_ACTIVE) launchUi();
+                    call.getState() == Call.STATE_CONNECTING ||
+                    call.getState() == Call.STATE_ACTIVE) {
+                launchUi();
+            }
         }
         broadcastChange();
     }
@@ -59,8 +78,8 @@ public class CallFixInCallService extends InCallService {
         try {
             Intent i = new Intent(this, MainActivity.class);
             i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK |
-                       Intent.FLAG_ACTIVITY_CLEAR_TOP |
-                       Intent.FLAG_ACTIVITY_SINGLE_TOP);
+                    Intent.FLAG_ACTIVITY_CLEAR_TOP |
+                    Intent.FLAG_ACTIVITY_SINGLE_TOP);
             startActivity(i);
         } catch (Throwable ignored) {}
     }
@@ -87,7 +106,9 @@ public class CallFixInCallService extends InCallService {
         Call c = currentCall;
         if (c != null && c.getState() == Call.STATE_RINGING) {
             RingerController.stop();
+            IncomingCallNotifier.cancel(this);
             c.answer(VideoProfile.STATE_AUDIO_ONLY);
+            launchUi();
         }
     }
 
@@ -95,6 +116,7 @@ public class CallFixInCallService extends InCallService {
         Call c = currentCall;
         if (c != null) {
             RingerController.stop();
+            IncomingCallNotifier.cancel(this);
             if (c.getState() == Call.STATE_RINGING) c.reject(false, null);
             else c.disconnect();
         }
@@ -104,6 +126,7 @@ public class CallFixInCallService extends InCallService {
         Call c = currentCall;
         if (c != null) {
             RingerController.stop();
+            IncomingCallNotifier.cancel(this);
             c.disconnect();
         }
     }
