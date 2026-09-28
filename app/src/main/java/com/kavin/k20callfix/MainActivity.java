@@ -111,11 +111,11 @@ public class MainActivity extends Activity {
             return;
         }
 
-        root.addView(text("K20 CallFix v0.3", 30));
+        root.addView(text("K20 CallFix v0.4", 30));
         root.addView(text(
                 "Crash-safe mode replaces only Android's writable system ringtone value. " +
-                "It does not touch Xiaomi's protected ringtone keys. CallFix rings separately " +
-                "with a generated tone.",
+                "CallFix rings separately and now uses a full-screen CALL notification " +
+                "for incoming calls while the phone is locked.",
                 16));
 
         TelecomManager tm = (TelecomManager) getSystemService(TELECOM_SERVICE);
