@@ -12,12 +12,14 @@ public final class RingerController {
     private static Vibrator vibrator;
     private static boolean running;
     private static int oldAlarmVolume = -1;
+    private static Context appContext;
 
     private RingerController() {}
 
     public static synchronized void start(Context context) {
         if (running) return;
         running = true;
+        appContext = context.getApplicationContext();
 
         AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
         if (am != null) {
@@ -55,15 +57,17 @@ public final class RingerController {
             try { vibrator.cancel(); } catch (Throwable ignored) {}
             vibrator = null;
         }
-    }
 
-    public static synchronized void restoreAlarmVolume(Context context) {
-        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        if (am != null && oldAlarmVolume >= 0) {
-            try { am.setStreamVolume(AudioManager.STREAM_ALARM, oldAlarmVolume, 0); }
-            catch (Throwable ignored) {}
+        if (appContext != null && oldAlarmVolume >= 0) {
+            AudioManager am = (AudioManager) appContext.getSystemService(Context.AUDIO_SERVICE);
+            if (am != null) {
+                try { am.setStreamVolume(AudioManager.STREAM_ALARM, oldAlarmVolume, 0); }
+                catch (Throwable ignored) {}
+            }
         }
+
         oldAlarmVolume = -1;
+        appContext = null;
     }
 
     private static void releaseTone() {
