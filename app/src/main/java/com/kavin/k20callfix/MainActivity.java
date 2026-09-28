@@ -24,6 +24,7 @@ import android.widget.Button;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.TextView;
+import android.widget.Toast;
 
 public class MainActivity extends Activity {
     private static final int REQ_ROLE = 100;
@@ -110,10 +111,11 @@ public class MainActivity extends Activity {
             return;
         }
 
-        root.addView(text("K20 CallFix v0.2", 30));
+        root.addView(text("K20 CallFix v0.3", 30));
         root.addView(text(
-                "Crash-safe mode prevents MIUI from opening a real system ringtone. " +
-                "CallFix rings separately on the alarm audio path using a generated tone.",
+                "Crash-safe mode replaces only Android's writable system ringtone value. " +
+                "It does not touch Xiaomi's protected ringtone keys. CallFix rings separately " +
+                "with a generated tone.",
                 16));
 
         TelecomManager tm = (TelecomManager) getSystemService(TELECOM_SERVICE);
@@ -150,8 +152,8 @@ public class MainActivity extends Activity {
         root.addView(callButton);
 
         root.addView(text(
-                "Important: use Restore Xiaomi system ringing before uninstalling CallFix. " +
-                "You can also recover by choosing a ringtone and raising Ring volume in MIUI Settings.",
+                "Restore Xiaomi system ringing before uninstalling CallFix. " +
+                "If needed, selecting a normal ringtone in MIUI Settings also restores it.",
                 14));
     }
 
@@ -160,9 +162,13 @@ public class MainActivity extends Activity {
             getSharedPreferences(PREFS, MODE_PRIVATE)
                     .edit().putBoolean("waiting_write_settings", true).apply();
 
-            Intent i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(i);
+            try {
+                Intent i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            } catch (Throwable t) {
+                Toast.makeText(this, "Modify-system-settings screen unavailable", Toast.LENGTH_LONG).show();
+            }
             return;
         }
         applyGuard();
@@ -171,19 +177,42 @@ public class MainActivity extends Activity {
     private void applyGuard() {
         backupOriginals();
 
-        Settings.System.putString(getContentResolver(), Settings.System.RINGTONE, BLOCKED_URI);
-        Settings.System.putString(getContentResolver(), "ringtone_default", BLOCKED_URI);
-        Settings.System.putString(getContentResolver(), "ringtone_sound_slot_1", BLOCKED_URI);
-        Settings.System.putString(getContentResolver(), "ringtone_sound_slot_2", BLOCKED_URI);
-
-        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
-        if (am != null) {
-            try { am.setStreamVolume(AudioManager.STREAM_RING, 0, 0); }
-            catch (Throwable ignored) {}
+        boolean ringtoneOk = false;
+        try {
+            ringtoneOk = Settings.System.putString(
+                    getContentResolver(), Settings.System.RINGTONE, BLOCKED_URI);
+        } catch (Throwable t) {
+            Toast.makeText(this, "Could not replace system ringtone: " + t.getClass().getSimpleName(),
+                    Toast.LENGTH_LONG).show();
         }
 
-        getSharedPreferences(PREFS, MODE_PRIVATE)
-                .edit().putBoolean("guard_enabled", true).apply();
+        boolean volumeOk = false;
+        AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
+        if (am != null) {
+            try {
+                am.setStreamVolume(AudioManager.STREAM_RING, 0, 0);
+                volumeOk = am.getStreamVolume(AudioManager.STREAM_RING) == 0;
+            } catch (Throwable t) {
+                Toast.makeText(this, "Could not mute MIUI ring stream: " + t.getClass().getSimpleName(),
+                        Toast.LENGTH_LONG).show();
+            }
+        }
+
+        String actual = Settings.System.getString(getContentResolver(), Settings.System.RINGTONE);
+        boolean actualOk = BLOCKED_URI.equals(actual);
+
+        getSharedPreferences(PREFS, MODE_PRIVATE).edit()
+                .putBoolean("guard_enabled", ringtoneOk && actualOk && volumeOk)
+                .apply();
+
+        if (actualOk && volumeOk) {
+            Toast.makeText(this, "Crash-safe ringing enabled", Toast.LENGTH_SHORT).show();
+        } else {
+            Toast.makeText(this,
+                    "Guard incomplete. Ringtone=" + (actualOk ? "OK" : "FAILED") +
+                    ", ring volume=" + (volumeOk ? "OK" : "FAILED"),
+                    Toast.LENGTH_LONG).show();
+        }
         rebuild();
     }
 
@@ -195,10 +224,8 @@ public class MainActivity extends Activity {
         int ringVol = am == null ? -1 : am.getStreamVolume(AudioManager.STREAM_RING);
 
         sp.edit()
-                .putString("orig_ringtone", encode(Settings.System.getString(getContentResolver(), Settings.System.RINGTONE)))
-                .putString("orig_default", encode(Settings.System.getString(getContentResolver(), "ringtone_default")))
-                .putString("orig_slot1", encode(Settings.System.getString(getContentResolver(), "ringtone_sound_slot_1")))
-                .putString("orig_slot2", encode(Settings.System.getString(getContentResolver(), "ringtone_sound_slot_2")))
+                .putString("orig_ringtone",
+                        encode(Settings.System.getString(getContentResolver(), Settings.System.RINGTONE)))
                 .putInt("orig_ring_volume", ringVol)
                 .putBoolean("backed_up", true)
                 .apply();
@@ -206,24 +233,24 @@ public class MainActivity extends Activity {
 
     private void restoreGuard() {
         if (!Settings.System.canWrite(this)) {
-            getSharedPreferences(PREFS, MODE_PRIVATE)
-                    .edit().putBoolean("waiting_write_settings", false).apply();
-            Intent i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
-                    Uri.parse("package:" + getPackageName()));
-            startActivity(i);
+            try {
+                Intent i = new Intent(Settings.ACTION_MANAGE_WRITE_SETTINGS,
+                        Uri.parse("package:" + getPackageName()));
+                startActivity(i);
+            } catch (Throwable t) {
+                Toast.makeText(this, "Modify-system-settings screen unavailable", Toast.LENGTH_LONG).show();
+            }
             return;
         }
 
         SharedPreferences sp = getSharedPreferences(PREFS, MODE_PRIVATE);
         if (sp.getBoolean("backed_up", false)) {
-            Settings.System.putString(getContentResolver(), Settings.System.RINGTONE,
-                    decode(sp.getString("orig_ringtone", NULL)));
-            Settings.System.putString(getContentResolver(), "ringtone_default",
-                    decode(sp.getString("orig_default", NULL)));
-            Settings.System.putString(getContentResolver(), "ringtone_sound_slot_1",
-                    decode(sp.getString("orig_slot1", NULL)));
-            Settings.System.putString(getContentResolver(), "ringtone_sound_slot_2",
-                    decode(sp.getString("orig_slot2", NULL)));
+            try {
+                Settings.System.putString(getContentResolver(), Settings.System.RINGTONE,
+                        decode(sp.getString("orig_ringtone", NULL)));
+            } catch (Throwable t) {
+                Toast.makeText(this, "Could not restore ringtone", Toast.LENGTH_LONG).show();
+            }
 
             AudioManager am = (AudioManager) getSystemService(AUDIO_SERVICE);
             int oldVolume = sp.getInt("orig_ring_volume", -1);
@@ -237,11 +264,10 @@ public class MainActivity extends Activity {
                 .putBoolean("guard_enabled", false)
                 .putBoolean("backed_up", false)
                 .remove("orig_ringtone")
-                .remove("orig_default")
-                .remove("orig_slot1")
-                .remove("orig_slot2")
                 .remove("orig_ring_volume")
                 .apply();
+
+        Toast.makeText(this, "System ringing restored", Toast.LENGTH_SHORT).show();
         rebuild();
     }
 
