@@ -3,10 +3,14 @@
     <uses-permission android:name="android.permission.CALL_PHONE"/>
     <uses-permission android:name="android.permission.VIBRATE"/>
     <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT"/>
+    <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS"/>
+    <uses-permission android:name="android.permission.WRITE_SETTINGS"/>
+
     <application
         android:allowBackup="false"
         android:label="K20 CallFix"
         android:theme="@style/AppTheme">
+
         <activity
             android:name=".MainActivity"
             android:exported="true"
@@ -27,6 +31,7 @@
                 <data android:scheme="tel"/>
             </intent-filter>
         </activity>
+
         <service
             android:name=".CallFixInCallService"
             android:exported="true"
