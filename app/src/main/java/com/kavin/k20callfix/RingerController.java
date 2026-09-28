@@ -11,37 +11,59 @@ public final class RingerController {
     private static ToneGenerator tone;
     private static Vibrator vibrator;
     private static boolean running;
+    private static int oldAlarmVolume = -1;
+
     private RingerController() {}
 
     public static synchronized void start(Context context) {
         if (running) return;
         running = true;
+
         AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
-        if (am != null && am.getRingerMode() == AudioManager.RINGER_MODE_NORMAL) {
+        if (am != null) {
             try {
-                tone = new ToneGenerator(AudioManager.STREAM_RING, ToneGenerator.MAX_VOLUME);
+                oldAlarmVolume = am.getStreamVolume(AudioManager.STREAM_ALARM);
+                int max = am.getStreamMaxVolume(AudioManager.STREAM_ALARM);
+                int target = Math.max(oldAlarmVolume, Math.max(1, (int)Math.ceil(max * 0.75)));
+                am.setStreamVolume(AudioManager.STREAM_ALARM, target, 0);
+
+                tone = new ToneGenerator(AudioManager.STREAM_ALARM, ToneGenerator.MAX_VOLUME);
                 tone.startTone(ToneGenerator.TONE_SUP_RINGTONE);
-            } catch (Throwable ignored) { releaseTone(); }
+            } catch (Throwable ignored) {
+                releaseTone();
+            }
         }
-        if (am == null || am.getRingerMode() != AudioManager.RINGER_MODE_SILENT) {
-            try {
-                vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
-                if (vibrator != null && vibrator.hasVibrator()) {
-                    long[] p = new long[]{0,700,450,700,2200};
-                    if (Build.VERSION.SDK_INT >= 26) vibrator.vibrate(VibrationEffect.createWaveform(p,0));
-                    else vibrator.vibrate(p,0);
+
+        try {
+            vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
+            if (vibrator != null && vibrator.hasVibrator()) {
+                long[] p = new long[]{0,700,450,700,2200};
+                if (Build.VERSION.SDK_INT >= 26) {
+                    vibrator.vibrate(VibrationEffect.createWaveform(p,0));
+                } else {
+                    vibrator.vibrate(p,0);
                 }
-            } catch (Throwable ignored) {}
-        }
+            }
+        } catch (Throwable ignored) {}
     }
 
     public static synchronized void stop() {
         running = false;
         releaseTone();
+
         if (vibrator != null) {
             try { vibrator.cancel(); } catch (Throwable ignored) {}
             vibrator = null;
         }
+    }
+
+    public static synchronized void restoreAlarmVolume(Context context) {
+        AudioManager am = (AudioManager) context.getSystemService(Context.AUDIO_SERVICE);
+        if (am != null && oldAlarmVolume >= 0) {
+            try { am.setStreamVolume(AudioManager.STREAM_ALARM, oldAlarmVolume, 0); }
+            catch (Throwable ignored) {}
+        }
+        oldAlarmVolume = -1;
     }
 
     private static void releaseTone() {
